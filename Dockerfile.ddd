@@ -1,0 +1,117 @@
+# ddd - DDD123
+# Library for simple scene modelling.
+# Jose Juan Montes and Contributors 2020-2021
+
+
+FROM ubuntu:18.04
+
+# Update apt-get and install common packages
+RUN apt-get -y update --fix-missing
+
+# Packages
+#RUN DEBIAN_FRONTEND=noninteractive apt-get -y upgrade
+
+# This adds support for locales and avoid Python3 using POSIX with no UTF8 support as default, which causes issues with some UTF-8 JSON encoded files
+RUN apt-get install -y language-pack-en
+#RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US:en
+ENV LC_ALL en_US.UTF-8
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        curl sqlite3
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        python3 python3-venv nodejs
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        gdal-bin gdal-data libgdal-dev
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        git cmake build-essential python3-dev
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        bzip2 libboost-dev libexpat1-dev zlib1g-dev libbz2-dev liblz4-dev
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        libcairo2 osmctools osmium-tool
+
+
+# Install npm
+WORKDIR /tmp
+
+RUN curl -sL https://deb.nodesource.com/setup_10.x -o nodesource_setup.sh
+RUN bash nodesource_setup.sh
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        nodejs
+
+
+# Install osmtogeojson
+
+WORKDIR /root
+
+RUN git clone https://github.com/tyrasd/osmtogeojson/
+WORKDIR /root/osmtogeojson
+RUN npm install
+
+
+# Copy and uncompress packages
+COPY build/files.tgz /tmp/files.tgz
+
+WORKDIR /tmp
+
+RUN tar xf files.tgz
+RUN rm files.tgz
+
+# Prepare DDD environment
+WORKDIR /root
+RUN cp -a /tmp/files/ddd /root/
+WORKDIR /root/ddd
+
+RUN python3 -m venv env
+ENV PATH="/root/ddd/env/bin:$PATH"
+
+RUN env/bin/pip install pip --upgrade
+
+# GDAL needs to be installed after numpy (https://gis.stackexchange.com/questions/153199/import-error-no-module-named-gdal-array)
+RUN env/bin/pip install 'numpy<1.20.0'
+RUN CPLUS_INCLUDE_PATH=/usr/include/gdal/ C_INCLUDE_PATH=/usr/include/gdal/ env/bin/pip install gdal==2.2.3
+
+# Trimesh depends on scipy and scikit-image and will install a newer version (which requires Python 3.7), install our pinned version before.
+RUN env/bin/pip install 'scipy < 1.6.0'
+RUN env/bin/pip install 'scikit-image < 0.18.0'
+
+# Wheel is required for Rtree install by Trimesh
+RUN env/bin/pip install 'wheel'
+
+# Currently, DDD uses a patched Trimesh version to support glTF extras metadata
+WORKDIR /root
+RUN git clone https://github.com/jjmontesl/trimesh.git
+WORKDIR /root/trimesh
+RUN git checkout gltf-node-extras
+#RUN /root/ddd/env/bin/python setup.py develop
+# Installing with all dependencies
+RUN . /root/ddd/env/bin/activate && /root/ddd/env/bin/python setup.py develop easy_install trimesh[all]
+
+# Install ddd (in develop mode)
+WORKDIR /root/ddd
+RUN env/bin/python setup.py develop
+
+# Reinstall shapely (to fix error message as per https://stackoverflow.com/questions/60111684/geometry-must-be-a-point-or-linestring-error-using-cartopy)
+RUN env/bin/pip uninstall -y shapely
+RUN env/bin/pip install shapely --no-binary shapely
+
+# Copy configuration...
+COPY files/ddd.conf /root/.ddd.conf
+
+# Workdir
+WORKDIR /root
+
+# Cleanup
+RUN rm -rf /tmp/files
+
+# Default docker command (supervisor)
+#CMD /bin/bash
+#ENTRYPOINT ["/root/ddd/env/bin/ddd"]
+CMD ["/root/ddd/env/bin/ddd"]
+
