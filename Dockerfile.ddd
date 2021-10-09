@@ -36,6 +36,9 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
         libcairo2 osmctools osmium-tool
 
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        dict-freedict-spa-eng
+
 
 # Install npm
 WORKDIR /tmp
