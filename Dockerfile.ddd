@@ -19,9 +19,7 @@ ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        curl sqlite3
-
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        curl sqlite3 \
         python3 python3-venv nodejs
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -31,12 +29,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
         git cmake build-essential python3-dev
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        bzip2 libboost-dev libexpat1-dev zlib1g-dev libbz2-dev liblz4-dev
-
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        libcairo2 osmctools osmium-tool
-
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        bzip2 libboost-dev libexpat1-dev zlib1g-dev libbz2-dev liblz4-dev \
+        libcairo2 osmctools osmium-tool \
         dict-freedict-spa-eng
 
 
@@ -47,6 +41,9 @@ RUN curl -sL https://deb.nodesource.com/setup_10.x -o nodesource_setup.sh
 RUN bash nodesource_setup.sh
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
         nodejs
+RUN npm cache clean -f
+RUN npm install -g n
+RUN n stable
 
 
 # Install osmtogeojson
@@ -55,6 +52,13 @@ WORKDIR /root
 
 RUN git clone https://github.com/tyrasd/osmtogeojson/
 WORKDIR /root/osmtogeojson
+RUN npm install
+
+
+# Install draco
+RUN mkdir /root/ddd-gltf-draco
+COPY files/draco/package.json /root/ddd-gltf-draco
+WORKDIR /root/ddd-gltf-draco
 RUN npm install
 
 
@@ -83,11 +87,14 @@ RUN CPLUS_INCLUDE_PATH=/usr/include/gdal/ C_INCLUDE_PATH=/usr/include/gdal/ env/
 # Trimesh depends on scipy and scikit-image and will install a newer version (which requires Python 3.7), install our pinned version before.
 RUN env/bin/pip install 'scipy < 1.6.0'
 RUN env/bin/pip install 'scikit-image < 0.18.0'
+# Chardet <4.0 required by aiohttp
+RUN env/bin/pip install 'chardet < 4.0'
 
 # Wheel is required for Rtree install by Trimesh
 RUN env/bin/pip install 'wheel'
 
 # Currently, DDD uses a patched Trimesh version to support glTF extras metadata
+# (this has since been merged to upstream but not yet upgraded)
 WORKDIR /root
 RUN git clone https://github.com/jjmontesl/trimesh.git
 WORKDIR /root/trimesh
@@ -113,7 +120,7 @@ WORKDIR /root
 # Cleanup
 RUN rm -rf /tmp/files
 
-# Default docker command (supervisor)
+# Default docker command
 #CMD /bin/bash
 #ENTRYPOINT ["/root/ddd/env/bin/ddd"]
 CMD ["/root/ddd/env/bin/ddd"]

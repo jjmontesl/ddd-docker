@@ -20,17 +20,20 @@ Run:
 
 ## Running
 
-Use:
+Test running `ddd -h` in the container with:
 
-    docker run -v $DDD_DATADIR:/root/data -v $DDD_LOCAL:/root/local -it ddd:latest /bin/bash
+    docker run -it ddd:latest ddd -h
 
-Eg:
+You can map your data and working directories:
 
-    docker run -v ~/git/ddd/data:/root/data -v ~/git/ddd/private:/root/local -it ddd:latest /bin/bash
+    docker run -v ~/ddd/data:/root/data -v ~/ddd/local:/root/local -it ddd:latest /bin/bash
 
-You can then run DDD command inside the container:
+Test run the OSM generation pipeline inside the container (elevation is disabled, as
+it requires DEM files for the target area):
 
-    ddd osm-build --center=-8.406500,43.385922 --radius 200 --name=acoruna_hercules --catalog-overwrite --export-meshes --export-textures
+    docker run -p 8085:8085 -v ~/git/ddd/data:/root/data -v ~/git/ddd/private:/root/local -it ddd:latest \
+        /bin/bash -c 'DDD_GEO_ELEVATION_DUMMY=True ddd run /root/ddd/pipelines/osm/osm_build.py -o --cache-clear --cache-ro --no-textures -p ddd:osm:area:center=-8.406500,43.385922 -p ddd:osm:area:radius=150m -p ddd:osm:output:name=acoruna_hercules -p ddd:osm:datasource:path=/root/local/data/osm/ --export-meshes'
+
 
 
 
