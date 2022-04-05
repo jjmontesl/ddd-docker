@@ -80,6 +80,8 @@ ENV PATH="/root/ddd/env/bin:$PATH"
 
 RUN env/bin/pip install pip --upgrade
 
+
+
 # GDAL needs to be installed after numpy (https://gis.stackexchange.com/questions/153199/import-error-no-module-named-gdal-array)
 RUN env/bin/pip install 'numpy<1.20.0'
 RUN CPLUS_INCLUDE_PATH=/usr/include/gdal/ C_INCLUDE_PATH=/usr/include/gdal/ env/bin/pip install gdal==2.2.3
@@ -93,15 +95,33 @@ RUN env/bin/pip install 'chardet < 4.0'
 # Wheel is required for Rtree install by Trimesh
 RUN env/bin/pip install 'wheel'
 
+# (*) EASY MODE HOTFIX [06/04/22] for rtree==1.0.0
+RUN env/bin/pip install -Iv 'rtree==0.9.7'
+
 # Currently, DDD uses a patched Trimesh version to support glTF extras metadata
 # (this has since been merged to upstream but not yet upgraded)
 WORKDIR /root
 RUN git clone https://github.com/jjmontesl/trimesh.git
 WORKDIR /root/trimesh
 RUN git checkout gltf-node-extras
+
 #RUN /root/ddd/env/bin/python setup.py develop
-# Installing with all dependencies
-RUN . /root/ddd/env/bin/activate && /root/ddd/env/bin/python setup.py develop easy_install trimesh[all]
+
+# Installing in easy mode:
+# Keeping trimesh easy to install is a core goal, thus the only hard dependency is numpy.
+# For more functionality, like convex hulls (scipy), graph operations (networkx), faster ray queries (pyembree), 
+# vector path handling (shapely and rtree), preview windows (pyglet), faster cache checks (xxhash) and more, the easiest way to get a full trimesh
+
+# (*) EASY MODE HOTFIX [06/04/22]: 
+# Source: https://github.com/z3nth10n/trimesh/tree/gltf-node-extras/trimesh/exchange#dependencies
+# -------------------------------------------------------------------------------------
+# pip install trimesh[easy]
+# Install things that install cleanly on all major platforms / Python versions without compiling (they have working wheels). Unfortunately two packages (rtree and shapely) currently required additional shared libraries to function rather than including them in the wheels.
+# 
+# pip install trimesh[all]
+# Includes libraries that need compiling. Should be able to install through some means on all platforms.
+
+RUN . /root/ddd/env/bin/activate && /root/ddd/env/bin/python setup.py develop easy_install trimesh[easy]
 
 # Install ddd (in develop mode)
 WORKDIR /root/ddd
@@ -110,6 +130,8 @@ RUN env/bin/python setup.py develop
 # Reinstall shapely (to fix error message as per https://stackoverflow.com/questions/60111684/geometry-must-be-a-point-or-linestring-error-using-cartopy)
 RUN env/bin/pip uninstall -y shapely
 RUN env/bin/pip install shapely --no-binary shapely
+
+RUN env/bin/pip install django
 
 # Copy configuration...
 COPY files/ddd.conf /root/.ddd.conf
