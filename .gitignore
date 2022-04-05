@@ -29,3 +29,5 @@ develop-eggs
 
 /build
 /files/ddd
+
+*.logs
