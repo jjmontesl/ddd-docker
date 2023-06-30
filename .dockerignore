@@ -1,0 +1,9 @@
+.git
+.gitignore
+.project
+.pydevproject
+
+/logs
+/build
+
+/Makefile

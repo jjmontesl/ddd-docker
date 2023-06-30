@@ -1,17 +1,20 @@
 # ddd - DDD123
 # Library for simple scene modelling.
-# Jose Juan Montes and Contributors 2020-2021
+# Jose Juan Montes and Contributors 2020-2023
 
 
-FROM ubuntu:18.04
+#FROM ubuntu:20.04
+# Last version using ubuntu-focal (20.04)
+FROM linuxserver/blender:3.3.1  
 
 # Update apt-get and install common packages
 RUN apt-get -y update --fix-missing
 
-# Packages
+# Upgrade Packages
 #RUN DEBIAN_FRONTEND=noninteractive apt-get -y upgrade
 
-# This adds support for locales and avoid Python3 using POSIX with no UTF8 support as default, which causes issues with some UTF-8 JSON encoded files
+# This adds support for locales and avoid Python3 using POSIX with no UTF8 support as default, 
+# which causes issues with some UTF-8 JSON encoded files
 RUN apt-get install -y language-pack-en
 #RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
 ENV LANG en_US.UTF-8
@@ -20,13 +23,13 @@ ENV LC_ALL en_US.UTF-8
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
         curl sqlite3 \
-        python3 python3-venv nodejs
+        python3.8 python3.8-venv nodejs
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
         gdal-bin gdal-data libgdal-dev
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        git cmake build-essential python3-dev
+        git cmake build-essential python3.8-dev gfortran
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
         bzip2 libboost-dev libexpat1-dev zlib1g-dev libbz2-dev liblz4-dev \
@@ -34,26 +37,38 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
         dict-freedict-spa-eng
 
 
+# Install blender for CSG operations
+# Blender "avoids" releasing through standard means, and snaps are difficult to use in docker, so here we use a 3rd party PPA 
+# Still, this install 2.92.0 and we use 3.6 in development
+# RUN DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
+# RUN DEBIAN_FRONTEND=noninteractive add-apt-repository ppa:thomas-schiex/blender -y
+# RUN DEBIAN_FRONTEND=noninteractive apt-get update
+# RUN DEBIAN_FRONTEND=noninteractive apt-get install -y "blender=2.92.0--release~103106-02948a2cab4+nano+optix+kernels-0thomas~focal2"
+
+
 # Install npm
 WORKDIR /tmp
+## 16.13.0
+#ENV NODE_VERSION=18  
+#RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+#ENV NVM_DIR=/root/.nvm
+#RUN . "$NVM_DIR/nvm.sh" && nvm install ${NODE_VERSION}
+#RUN . "$NVM_DIR/nvm.sh" && nvm use v${NODE_VERSION}
+#RUN . "$NVM_DIR/nvm.sh" && nvm alias default v${NODE_VERSION}
+#ENV PATH="/root/.nvm/versions/node/v${NODE_VERSION}/bin/:${PATH}"
 
-RUN curl -sL https://deb.nodesource.com/setup_10.x -o nodesource_setup.sh
-RUN bash nodesource_setup.sh
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        nodejs
-RUN npm cache clean -f
-RUN npm install -g n
-RUN n stable
+# Not needed with linuxserver/blender:3.3.1
+#RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends npm
 
+# Check Node and NPM
+RUN node --version
+RUN npm --version
 
 # Install osmtogeojson
-
 WORKDIR /root
-
 RUN git clone https://github.com/tyrasd/osmtogeojson/
 WORKDIR /root/osmtogeojson
 RUN npm install
-
 
 # Install draco
 RUN mkdir /root/ddd-gltf-draco
@@ -61,61 +76,72 @@ COPY files/draco/package.json /root/ddd-gltf-draco
 WORKDIR /root/ddd-gltf-draco
 RUN npm install
 
-
-# Copy and uncompress packages
-COPY build/files.tgz /tmp/files.tgz
-
 WORKDIR /tmp
 
-RUN tar xf files.tgz
-RUN rm files.tgz
 
 # Prepare DDD environment
-WORKDIR /root
-RUN cp -a /tmp/files/ddd /root/
+# DDD files are copied later to improve docker build cache reuse
+RUN mkdir /root/ddd
 WORKDIR /root/ddd
 
-RUN python3 -m venv env
-ENV PATH="/root/ddd/env/bin:$PATH"
+RUN python3 -m venv venv
+ENV PATH="/root/ddd/venv/bin:$PATH"
 
-RUN env/bin/pip install pip --upgrade
+RUN pip install pip --upgrade
+
+# Install pyembree which requires upgrading setuptools and NumPy, earlier.
+# Pip will comply about this dependency being in conflict, but trimesh/pyembree still work in our use cases.
+RUN pip install 'pyembree==0.2.11'
+
+# Setuptools setuptools<61.0.0,>=60.9.3 is required by 'pyembree'
+# Pinned <58.0.0 for GDAL as per:
+# - https://github.com/pypa/setuptools/issues/2781
+# - https://stackoverflow.com/questions/69123406/error-building-pygdal-unknown-distribution-option-use-2to3-fixers-and-use-2
+RUN python3 -m pip install --upgrade --no-cache-dir setuptools==58.0.4
+#RUN env/bin/pip install 'setuptools == 58.0.2'  
+#RUN env/bin/pip install 'setuptools >=56,<58.0.0'  
+#RUN env/bin/pip install 'setuptools <61.0.0,>=60.9.3'
+#RUN env/bin/pip install 'setuptools == 60.10.0'
+
+# Wheel is required for Pygdal, and later for Rtree install by Trimesh
+RUN python3 -m pip install --upgrade --no-cache-dir wheel requests
 
 # GDAL needs to be installed after numpy (https://gis.stackexchange.com/questions/153199/import-error-no-module-named-gdal-array)
-RUN env/bin/pip install 'numpy<1.20.0'
-RUN CPLUS_INCLUDE_PATH=/usr/include/gdal/ C_INCLUDE_PATH=/usr/include/gdal/ env/bin/pip install gdal==2.2.3
+# Using numpy < 1.20 due to our usage (via trimesh) of deprecated numpy features (https://numpy.org/devdocs/release/1.20.0-notes.html#deprecations)
+RUN pip install 'numpy < 1.20'
+
+# Install pygdal
+RUN python3 -m pip install --no-cache-dir pygdal==3.0.4.*
+#RUN CPLUS_INCLUDE_PATH=/usr/include/gdal/ C_INCLUDE_PATH=/usr/include/gdal/ env/bin/pip install GDAL==3.0.4
 
 # Trimesh depends on scipy and scikit-image and will install a newer version (which requires Python 3.7), install our pinned version before.
-RUN env/bin/pip install 'scipy < 1.6.0'
-RUN env/bin/pip install 'scikit-image < 0.18.0'
+# These would upgrade numpy above 1.20
+#RUN pip install 'scipy < 1.6.0'
+#RUN pip install 'scikit-image < 0.18.0'
+RUN pip install 'numpy<1.20' 'scipy<1.6.0' 'scikit-image<0.18.0'
+
 # Chardet <4.0 required by aiohttp
-RUN env/bin/pip install 'chardet < 4.0'
+#RUN env/bin/pip install 'chardet < 4.0'
 
-# Wheel is required for Rtree install by Trimesh
-RUN env/bin/pip install 'wheel'
 
-# Currently, DDD uses a patched Trimesh version to support glTF extras metadata
-# (this has since been merged to upstream but not yet upgraded)
-WORKDIR /root
-RUN git clone https://github.com/jjmontesl/trimesh.git
-WORKDIR /root/trimesh
-RUN git checkout gltf-node-extras
-#RUN /root/ddd/env/bin/python setup.py develop
-# Installing with all dependencies
-RUN . /root/ddd/env/bin/activate && /root/ddd/env/bin/python setup.py develop easy_install trimesh[all]
+# Copy ddd files (note this will not copy hidden files starting with ., such as .git)
+RUN mkdir -p /tmp/files
+COPY files/ddd/ /tmp/files/ddd
+RUN cp -a /tmp/files/ddd/* /root/ddd/
 
 # Install ddd (in develop mode)
 WORKDIR /root/ddd
-RUN env/bin/python setup.py develop
+RUN python3 setup.py develop
 
-# Reinstall shapely (to fix error message as per https://stackoverflow.com/questions/60111684/geometry-must-be-a-point-or-linestring-error-using-cartopy)
-RUN env/bin/pip uninstall -y shapely
-RUN env/bin/pip install shapely --no-binary shapely
+# Downgrade trimesh, it was upgraded, and seems newer versions dont support 'extras' in 'add_geometry'
+RUN pip install 'trimesh[all] == 3.15.1'
 
 # Copy configuration...
 COPY files/ddd.conf /root/.ddd.conf
 
+
 # Workdir
-WORKDIR /root
+WORKDIR /root/ddd
 
 # Cleanup
 RUN rm -rf /tmp/files
